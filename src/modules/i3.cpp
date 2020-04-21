@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <set>
 
 #include "drawtypes/iconset.hpp"
 #include "drawtypes/label.hpp"
@@ -39,6 +40,8 @@ namespace modules {
 
     if (m_formatter->has(TAG_LABEL_STATE)) {
       m_statelabels.insert(
+          make_pair(state::PHANTOM, load_optional_label(m_conf, name(), "label-phantom", DEFAULT_WS_LABEL)));
+      m_statelabels.insert(
           make_pair(state::FOCUSED, load_optional_label(m_conf, name(), "label-focused", DEFAULT_WS_LABEL)));
       m_statelabels.insert(
           make_pair(state::UNFOCUSED, load_optional_label(m_conf, name(), "label-unfocused", DEFAULT_WS_LABEL)));
@@ -63,6 +66,21 @@ namespace modules {
       if (vec.size() == 2) {
         m_icons->add(vec[0], factory_util::shared<label>(vec[1]));
       }
+    }
+
+    for (const auto& workspace : m_conf.get_list<string>(name(), "ws-phantom", {})) {
+      auto vec = string_util::split(workspace, ';');
+      if (vec.size() != 3) continue;
+
+      unique_ptr<i3_util::workspace_t> ws(new i3_util::workspace_t);
+      ws->num = stoi(vec[0]);
+      ws->name = vec[1];
+      ws->visible = false;
+      ws->focused = false;
+      ws->urgent = false;
+      ws->output = vec[2];
+
+      m_phantoms.emplace_back(move(ws));
     }
 
     try {
@@ -127,11 +145,44 @@ namespace modules {
 
     try {
       vector<shared_ptr<i3_util::workspace_t>> workspaces;
+      std::set<int> phantoms;
 
       if (m_pinworkspaces) {
         workspaces = i3_util::workspaces(ipc, m_bar.monitor->name);
       } else {
         workspaces = i3_util::workspaces(ipc);
+      }
+
+      m_phantomoutputs.clear();
+      for (auto& phantom : m_phantoms) {
+        bool ws_found = false;
+        for (auto&& ws : workspaces) {
+          if (!ws_found && ws->name == phantom->name) {
+            ws_found = true;
+          }
+
+          if (ws->name.find(phantom->name) != std::string::npos) {
+            m_phantomoutputs.insert(make_pair(phantom->output, ws->output));
+          }
+
+          if (ws_found && m_phantomoutputs.find(phantom->output) != m_phantomoutputs.end()) break;
+        }
+
+        if (ws_found) continue;
+
+        if (m_phantomoutputs.find(phantom->output) != m_phantomoutputs.end()) {
+          shared_ptr<i3_util::workspace_t> ws(new i3_util::workspace_t);
+          ws->num = phantom->num;
+          ws->name = phantom->name;
+          ws->visible = false;
+          ws->focused = false;
+          ws->urgent = false;
+          ws->output = m_phantomoutputs.find(phantom->output)->second;
+
+          workspaces.emplace_back(ws);
+
+          phantoms.insert(phantom->num);
+        }
       }
 
       if (m_indexsort) {
@@ -147,6 +198,8 @@ namespace modules {
           ws_state = state::URGENT;
         } else if (ws->visible) {
           ws_state = state::VISIBLE;
+        } else if (phantoms.find(ws->num) != phantoms.end()) {
+          ws_state = state::PHANTOM;
         } else {
           ws_state = state::UNFOCUSED;
         }

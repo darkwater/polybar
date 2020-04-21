@@ -16,6 +16,10 @@ namespace modules {
     enum class state {
       NONE,
       /**
+       * \brief Phantom workspace that doesn't actually exist
+       */
+      PHANTOM,
+      /**
        * \brief Active workspace on focused monitor
        */
       FOCUSED,
@@ -75,6 +79,9 @@ namespace modules {
     map<state, label_t> m_statelabels;
     vector<unique_ptr<workspace>> m_workspaces;
     iconset_t m_icons;
+
+    vector<unique_ptr<i3_util::workspace_t>> m_phantoms;
+    map<string, string> m_phantomoutputs;
 
     label_t m_modelabel;
     bool m_modeactive{false};
